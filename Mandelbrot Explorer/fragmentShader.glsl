@@ -8,6 +8,8 @@ uniform dvec2 resolution;
 uniform dvec2 centerPosition;
 uniform double scale;
 
+uniform int maxIterations;
+
 float norm(float _x) {
 	//return _x * 2.0 - 1.0;
 	return _x;
@@ -22,7 +24,6 @@ void main() {
 	dvec2 z = c;
 
 	float iterations = 1.0;
-	float maxIterations = 256.0;
 	while (iterations < maxIterations && z.x * z.x + z.y * z.y < 4.0) {
 		z = dvec2(z.x * z.x - z.y * z.y + c.x, 2.0 * z.x * z.y + c.y);
 		iterations++;
