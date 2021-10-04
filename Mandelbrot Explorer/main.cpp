@@ -1,9 +1,4 @@
 
-#define GLEW_STATIC
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-
-
 #include <math.h>
 #include <iostream>
 #include <fstream>
@@ -19,6 +14,13 @@
 #include <Windows.h>
 #include <chrono>
 #include <vector>
+#include <locale>
+#include <codecvt>
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image.h"
+#include "stb_image_write.h"
 
 double x = 0.0, y = 0.0;
 double scale = 1.0;
@@ -29,22 +31,44 @@ int width, height;
 double mx = 0.0, my = 0.0;
 int maxIterations = 64;
 
+bool zooming = false;
+double zoomLocation[] = { 0, 0 };
+
+unsigned int zoomIndex = 0;
+
+void saveImage(const char* filepath, GLFWwindow* w) {
+	int width, height;
+	glfwGetFramebufferSize(w, &width, &height);
+	GLsizei nrChannels = 3;
+	GLsizei stride = nrChannels * width;
+	stride += (stride % 4) ? (4 - stride % 4) : 0;
+	GLsizei bufferSize = stride * height;
+	std::vector<char> buffer(bufferSize);
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
+	glReadBuffer(GL_FRONT);
+	glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+	stbi_flip_vertically_on_write(true);
+	stbi_write_png(filepath, width, height, nrChannels, buffer.data(), stride);
+}
+
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
-	if (!mouseCalled) {
-		lastX = xpos;
-		lastY = ypos;
-		mouseCalled = true;
-	}
-	else {
+	if (!zooming) {
+		if (!mouseCalled) {
+			lastX = xpos;
+			lastY = ypos;
+			mouseCalled = true;
+		}
+		else {
 
-		double dx = xpos - lastX;
-		double dy = ypos - lastY;
-		lastX = xpos;
-		lastY = ypos;
+			double dx = xpos - lastX;
+			double dy = ypos - lastY;
+			lastX = xpos;
+			lastY = ypos;
 
-		if (mouseDown) {
-			x -= dx / width * scale * 2;
-			y += dy / height * scale * 2;
+			if (mouseDown) {
+				x -= dx / width * scale * 2;
+				y += dy / height * scale * 2;
+			}
 		}
 	}
 }
@@ -61,15 +85,36 @@ void zoom(double xlocation, double ylocation, double scaleFactor) {
 }
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-	if (yoffset == 1) // then we assume the mouse is noncontinuous, so set the offset to be some constant
-		yoffset = -0.3;
-	else if (yoffset == -1)
-		yoffset = 0.3;
+	if (!zooming) {
+		if (yoffset == 1) // then we assume the mouse is noncontinuous, so set the offset to be some constant
+			yoffset = -0.3;
+		else if (yoffset == -1)
+			yoffset = 0.3;
 
-	double off = 1 + yoffset;
-	if (off > 0) {
-		zoom(mx / width * scale * 2 + (x - scale), (height - my) / height * scale * 2 + (y - scale), off);
+		double off = 1 + yoffset;
+		if (off > 0) {
+			zoom(mx / width * scale * 2 + (x - scale), (height - my) / height * scale * 2 + (y - scale), off);
+		}
 	}
+}
+
+void clear_console(HANDLE console) {
+	DWORD written = 0;
+	for (SHORT i = 0; i < 120; i++)
+		for (SHORT j = 0; j < 30; j++)
+			WriteConsoleOutputCharacter(console, L" ", 1, { i, j }, &written);
+}
+
+std::wstring to_wstring_p(const double val, const int n = 6)
+{
+	std::ostringstream out;
+	out.precision(n);
+	out << std::fixed << val;
+	std::string s = out.str();
+	std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+	std::wstring wide = converter.from_bytes(s);
+	return wide;
+
 }
 
 int main() {
@@ -209,30 +254,94 @@ int main() {
 			fpsBuffer.erase(fpsBuffer.begin());
 		}
 
-		WriteConsoleOutputCharacter(console, L"MANDELBROT EXPLORER", 19, { 2, 1 }, &written);
-		std::wstring fields[5] = {
-			L"MAX_ITERATIONS:  " + std::to_wstring(maxIterations),
-			L"RENDER_TIME: " + std::to_wstring(elapsed),
-			L"FPS: " + std::to_wstring(rollingFPSSum / fpsBuffer.size()),
-			L"REAL: " + std::to_wstring(mx / width * 2 * scale + (x - scale)),
-			L"IMAGINARY: " + std::to_wstring((height - my) / height * 2 * scale + (y - scale))
-		};
-		for (int i = 0; i < 5; i++) {
-			WriteConsoleOutputCharacter(console, fields[i].c_str(), fields[i].length(), { 3, 3 + (SHORT)i }, &written);
-		}
+		if (!zooming) {
+			WriteConsoleOutputCharacter(console, L"MANDELBROT EXPLORER", 19, { 2, 1 }, &written);
+			std::wstring fields[6 ] = {
+				L"MAX_ITERATIONS:  " + std::to_wstring(maxIterations),
+				L"RENDER_TIME: " + std::to_wstring(elapsed),
+				L"FPS: " + to_wstring_p(rollingFPSSum / fpsBuffer.size(), 2),
+				L"REAL: " + to_wstring_p(mx / width * 2 * scale + (x - scale), 20),
+				L"IMAGINARY: " + to_wstring_p((height - my) / height * 2 * scale + (y - scale), 20),
+				L"SCALE: " + to_wstring_p(scale, 20)
+			};
+			for (int i = 0; i < 6; i++) {
+				WriteConsoleOutputCharacter(console, fields[i].c_str(), fields[i].length(), { (SHORT)3, (SHORT)3 + (SHORT)i }, &written);
+			}
 
-		int shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
-		static bool shiftDown = false;
-		if (shift == GLFW_PRESS)
-			shiftDown = true;
-		else if (shift == GLFW_RELEASE)
-			shiftDown = false;
-		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-		{
-			if (shiftDown)
+			std::wstring controls[] = {
+				L"LEFT CLICK + DRAG: PAN",
+				L"SCROLL: ZOOM",
+				L"UP KEY: INCREASE ITERATIONS",
+				L"DOWN KEY: INCREASE ITERATIONS",
+				L"R: BEGIN A RENDERED ZOOM",
+				L"ESC: STOP ZOOM"
+			};
+			WriteConsoleOutputCharacter(console, L"CONTROLS", 8, { 2, 10 }, &written);
+			for (int i = 0; i < 6; i++) {
+				WriteConsoleOutputCharacter(console, controls[i].c_str(), controls[i].length(), { (SHORT)3, (SHORT)12 + (SHORT)i }, &written);
+			}
+
+			if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+			{
 				maxIterations++;
-			else
-				maxIterations += 32;
+			}
+
+			if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+				maxIterations--;
+			}
+
+			if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+				zooming = true;
+
+				clear_console(console);
+				
+				std::cout << "What does this do?" << std::endl;
+				std::cout << "   This automatically zooms in on a partciular location on the mandelbrot set." << std::endl;
+				std::cout << "   An MP4 of the rendered zoom will be output in the directory of this executable." << std::endl << std::endl;
+				std::cout << "--RENDERED ZOOM INSTRUCTIONS--" << std::endl;
+				std::cout << std::endl;
+				std::cout << "ZOOM LOCATION:" << std::endl;
+				// get zoom location
+				std::cout << "  REAL: ";
+				std::cin >> zoomLocation[0];
+				std::cout << "  IMAGINARY: ";
+				std::cin >> zoomLocation[1];
+				if (zoomLocation[0] == 0 && zoomLocation[1] == 0) {
+					zoomLocation[0] = mx / width * scale * 2 + (x - scale);
+					zoomLocation[1] = (height - my) / height * scale * 2 + (y - scale);
+				}
+				scale = 1.0;
+				x = zoomLocation[0];
+				y = zoomLocation[1];
+				zoomIndex = 0;
+
+				clear_console(console);
+			}
+		}
+		else {
+			if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS || scale < 0.0000000000000002) {
+				zooming = false;
+				clear_console(console);
+			}
+
+
+			zoom(zoomLocation[0], zoomLocation[1], 0.99);
+			
+			saveImage(("render/" + std::to_string(zoomIndex) + ".png").c_str(), window);
+			zoomIndex++;
+			
+			WriteConsoleOutputCharacter(console, L"MANDELBROT EXPLORER", 19, { 2, 1 }, &written);
+			std::wstring fields[6] = {
+				L"MAX_ITERATIONS:  " + std::to_wstring(maxIterations),
+				L"RENDER_TIME: " + std::to_wstring(elapsed),
+				L"FPS: " + to_wstring_p(rollingFPSSum / fpsBuffer.size(), 2),
+				L"REAL: " + to_wstring_p(zoomLocation[0], 20),
+				L"IMAGINARY: " + to_wstring_p(zoomLocation[1], 20),
+				L"SCALE: " + to_wstring_p(scale, 20)
+			};
+			for (int i = 0; i < 6; i++) {
+				WriteConsoleOutputCharacter(console, fields[i].c_str(), fields[i].length(), { (SHORT)3, (SHORT)3 + (SHORT)i }, &written);
+			}
 		}
 	}
 

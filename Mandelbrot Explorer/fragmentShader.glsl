@@ -29,10 +29,7 @@ void main() {
 		iterations++;
 	}
 
-	iterations /= 10.0;
+	float n = iterations * 50 / maxIterations;
 
-	//float n = float(length(z));
-	float n = iterations;
-
-	fragColor = vec4(norm(sin(n + 4.51)), norm(sin(n + 2.45)), norm(sin(n + 5.45)), 1.0);
+	fragColor = vec4(norm(sin(n)), norm(sin(n + 2.45)), norm(sin(n + 5.45)), 1.0);
 };
